@@ -18,6 +18,20 @@ export const ConfigSchema = z.strictObject({
       level: z.enum(['debug', 'info', 'warn', 'error']).optional(),
     })
     .optional(),
+  // Search backend selection (default: duckduckgo)
+  provider: z.enum(['duckduckgo', 'anysearch']).optional(),
+  anysearch: z
+    .strictObject({
+      // Prefer the ANYSEARCH_API_KEY env var over storing the key in the config file
+      apiKey: z.string().min(1).optional(),
+      maxResults: z.number().int().min(1).max(10).optional(),
+      tag: z.string().min(1).optional(),
+      zone: z.enum(['cn', 'intl']).optional(),
+      language: z.string().min(1).optional(),
+      // Fall back to DuckDuckGo when AnySearch fails (default: true)
+      fallbackToDuckDuckGo: z.boolean().optional(),
+    })
+    .optional(),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;
@@ -26,6 +40,8 @@ export type Config = z.infer<typeof ConfigSchema>;
 const DEFAULTS = {
   retry: { maxRetries: 4, baseDelay: 1000, maxDelay: 16000, timeout: 30000 },
   logging: { level: 'info' as const },
+  provider: 'duckduckgo' as const,
+  anysearch: { maxResults: 10, fallbackToDuckDuckGo: true },
 } as const;
 
 // Env var mapping (D-02, D-04)
@@ -35,6 +51,12 @@ const ENV_MAP = {
   'retry.maxDelay': 'WEBSEARCH_RETRY_MAX_DELAY',
   'retry.timeout': 'WEBSEARCH_RETRY_TIMEOUT',
   'logging.level': 'WEBSEARCH_LOGGING_LEVEL',
+  provider: 'WEBSEARCH_PROVIDER',
+  'anysearch.apiKey': 'ANYSEARCH_API_KEY',
+  'anysearch.maxResults': 'WEBSEARCH_ANYSEARCH_MAX_RESULTS',
+  'anysearch.tag': 'WEBSEARCH_ANYSEARCH_TAG',
+  'anysearch.zone': 'WEBSEARCH_ANYSEARCH_ZONE',
+  'anysearch.language': 'WEBSEARCH_ANYSEARCH_LANGUAGE',
 } as const;
 
 // Config path (D-03)
@@ -50,6 +72,15 @@ export interface ResolvedConfig {
   };
   logging: {
     level: 'debug' | 'info' | 'warn' | 'error';
+  };
+  provider: 'duckduckgo' | 'anysearch';
+  anysearch: {
+    apiKey?: string;
+    maxResults: number;
+    tag?: string;
+    zone?: 'cn' | 'intl';
+    language?: string;
+    fallbackToDuckDuckGo: boolean;
   };
 }
 
@@ -86,9 +117,12 @@ const NUMBER_KEYS = new Set([
   'retry.baseDelay',
   'retry.maxDelay',
   'retry.timeout',
+  'anysearch.maxResults',
 ]);
 
 const VALID_LEVELS = new Set(['debug', 'info', 'warn', 'error']);
+const VALID_PROVIDERS = new Set(['duckduckgo', 'anysearch']);
+const VALID_ZONES = new Set(['cn', 'intl']);
 
 function resolveFromEnv(key: string): string | number | undefined {
   const envName = ENV_MAP[key as keyof typeof ENV_MAP];
@@ -108,6 +142,22 @@ function resolveFromEnv(key: string): string | number | undefined {
   if (key === 'logging.level') {
     if (!VALID_LEVELS.has(envValue)) {
       process.stderr.write(`[warn] Invalid log level: "${envValue}"\n`);
+      return undefined;
+    }
+    return envValue;
+  }
+
+  if (key === 'provider') {
+    if (!VALID_PROVIDERS.has(envValue)) {
+      process.stderr.write(`[warn] Invalid provider: "${envValue}"\n`);
+      return undefined;
+    }
+    return envValue;
+  }
+
+  if (key === 'anysearch.zone') {
+    if (!VALID_ZONES.has(envValue)) {
+      process.stderr.write(`[warn] Invalid zone: "${envValue}"\n`);
       return undefined;
     }
     return envValue;
@@ -142,6 +192,20 @@ export function loadConfig(): ResolvedConfig {
     },
     logging: {
       level: resolve('logging.level', fileConfig.logging?.level, DEFAULTS.logging.level),
+    },
+    provider: resolve('provider', fileConfig.provider, DEFAULTS.provider),
+    anysearch: {
+      apiKey: resolve('anysearch.apiKey', fileConfig.anysearch?.apiKey, undefined),
+      maxResults: resolve(
+        'anysearch.maxResults',
+        fileConfig.anysearch?.maxResults,
+        DEFAULTS.anysearch.maxResults,
+      ),
+      tag: resolve('anysearch.tag', fileConfig.anysearch?.tag, undefined),
+      zone: resolve('anysearch.zone', fileConfig.anysearch?.zone, undefined),
+      language: resolve('anysearch.language', fileConfig.anysearch?.language, undefined),
+      fallbackToDuckDuckGo:
+        fileConfig.anysearch?.fallbackToDuckDuckGo ?? DEFAULTS.anysearch.fallbackToDuckDuckGo,
     },
   };
 }

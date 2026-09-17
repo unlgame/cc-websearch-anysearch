@@ -24,6 +24,8 @@ vi.mock('../src/lib/config.js', () => ({
   loadConfig: vi.fn(() => ({
     retry: { maxRetries: 4, baseDelay: 1000, maxDelay: 16000, timeout: 30000 },
     logging: { level: 'debug' },
+    provider: 'duckduckgo',
+    anysearch: { maxResults: 10, fallbackToDuckDuckGo: true },
   })),
 }));
 

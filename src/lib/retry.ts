@@ -56,6 +56,17 @@ export function isDDGTransientError(err: unknown): boolean {
   return false;
 }
 
+/**
+ * AnySearch failures worth retrying: transport-level errors and 429/5xx.
+ * A 401/403 (bad or expired key) or a business `code: -1` is NOT transient.
+ */
+export function isAnySearchTransientError(err: unknown): boolean {
+  if (err instanceof Error) {
+    return /ECONNREFUSED|ETIMEDOUT|ENOTFOUND|429|HTTP 5\d\d/.test(err.message);
+  }
+  return false;
+}
+
 export async function retryWithBackoff<T>(
   fn: () => Promise<T>,
   isTransient: (err: unknown) => boolean,

@@ -1,8 +1,8 @@
 # cc-websearch
 
-A Claude Code plugin providing WebSearch and WebFetch skills as a drop-in replacement for Claude Code's built-in tools. Powered by DuckDuckGo (no API keys required). Zero configuration for basic use.
+A Claude Code plugin providing WebSearch and WebFetch skills as a drop-in replacement for Claude Code's built-in tools. Powered by DuckDuckGo (no API keys required) or AnySearch. Zero configuration for basic use.
 
-- **WebSearch** -- Search the web using DuckDuckGo, returning structured XML results
+- **WebSearch** -- Search the web using DuckDuckGo or AnySearch, returning structured XML results
 - **WebFetch** -- Fetch a web page, extract its main content, and convert to markdown
 
 No API keys, no accounts, no subscriptions. Install the plugin and start searching.
@@ -119,16 +119,16 @@ Precedence (highest to lowest):
 
 ### WebSearch
 
-| Feature             | Built-in WebSearch     | cc-websearch WebSearch         |
-| ------------------- | ---------------------- | ------------------------------ |
-| Search provider     | Claude internal        | DuckDuckGo (HTML scraping)     |
-| API key required    | No                     | No                             |
-| `query`             | Supported              | Supported                      |
-| `allowed_domains`   | Supported              | Supported                      |
-| `blocked_domains`   | Supported              | Supported                      |
-| Output format       | `<search_results>` XML | `<search_results>` XML         |
-| Result fields       | title, url, snippet    | title, url, snippet            |
-| Domain filter limit | Neither required       | Cannot use both simultaneously |
+| Feature             | Built-in WebSearch     | cc-websearch WebSearch                 |
+| ------------------- | ---------------------- | -------------------------------------- |
+| Search provider     | Claude internal        | DuckDuckGo (HTML scraping) / AnySearch |
+| API key required    | No                     | No                                     |
+| `query`             | Supported              | Supported                              |
+| `allowed_domains`   | Supported              | Supported                              |
+| `blocked_domains`   | Supported              | Supported                              |
+| Output format       | `<search_results>` XML | `<search_results>` XML                 |
+| Result fields       | title, url, snippet    | title, url, snippet                    |
+| Domain filter limit | Neither required       | Cannot use both simultaneously         |
 
 ### WebFetch
 
@@ -144,15 +144,48 @@ Precedence (highest to lowest):
 
 ## Architecture
 
-cc-websearch uses DuckDuckGo as its sole search provider. There is no API key dependency -- search works out of the box with no account registration.
+cc-websearch ships two interchangeable search providers behind a single output format. DuckDuckGo is the default and needs no API key; AnySearch is opt-in and adds vertical-domain routing plus full-content results.
 
 ### WebSearch pipeline
 
 ```
-JSON input -> fetch lite.duckduckgo.com -> cheerio parse -> XML output with title, url, snippet
+DuckDuckGo:  JSON input -> fetch lite.duckduckgo.com -> cheerio parse -----------+
+                                                                                +-> domain filter -> XML output
+AnySearch:   JSON input -> POST api.anysearch.com/v1/search -> JSON envelope ----+
 ```
 
-The websearch script sends a query to `lite.duckduckgo.com`, parses the HTML response with cheerio, unwraps DuckDuckGo's `/l/?uddg=` redirect links to recover the real target URLs, and formats results as `<search_results>` XML matching Claude Code's built-in output format.
+Both providers normalize to the same `{ title, url, snippet }` shape, so `allowed_domains` / `blocked_domains` filtering and the `<search_results>` XML output are provider-independent.
+
+The DuckDuckGo provider sends a query to `lite.duckduckgo.com`, parses the HTML response with cheerio, and unwraps DuckDuckGo's `/l/?uddg=` redirect links to recover the real target URLs.
+
+The AnySearch provider POSTs to `https://api.anysearch.com/v1/search` with `{ query, max_results, tag?, zone?, language?, params? }` and maps `data.results[]` onto the shared shape; when a result has no `snippet` it falls back to the cleaned `content` field (truncated to 400 chars). An `Authorization: Bearer <key>` header is sent when `ANYSEARCH_API_KEY` is set, otherwise the anonymous per-IP tier is used.
+
+### Choosing a provider
+
+|                  | DuckDuckGo (default) | AnySearch                                                |
+| ---------------- | -------------------- | -------------------------------------------------------- |
+| API key          | Not needed           | Optional (`ANYSEARCH_API_KEY`)                           |
+| Max results      | Unlimited            | 10 (server cap)                                          |
+| Vertical routing | No                   | Yes (`tag` / `params`, e.g. `code.doc`, `finance.stock`) |
+| Result fields    | title, url, snippet  | title, url, snippet, cleaned content                     |
+| Enable with      | default              | `WEBSEARCH_PROVIDER=anysearch`                           |
+
+```bash
+# Anthropic-style: stay on DuckDuckGo (default)
+echo '{"query":"alpine linux"}' | node "${CLAUDE_PLUGIN_ROOT}/skills/websearch/scripts/websearch.cjs"
+
+# AnySearch, anonymous tier
+echo '{"query":"alpine linux"}' | WEBSEARCH_PROVIDER=anysearch \
+  node "${CLAUDE_PLUGIN_ROOT}/skills/websearch/scripts/websearch.cjs"
+
+# AnySearch with a key (higher quota)
+echo '{"query":"alpine linux"}' | WEBSEARCH_PROVIDER=anysearch ANYSEARCH_API_KEY=as_sk_... \
+  node "${CLAUDE_PLUGIN_ROOT}/skills/websearch/scripts/websearch.cjs"
+```
+
+If the AnySearch request fails (invalid key, quota exhausted, upstream error), the script logs a warning to stderr and falls back to DuckDuckGo so a search always returns results. Disable that with `"anysearch": { "fallbackToDuckDuckGo": false }` in the config file.
+
+Get an AnySearch key (optional, free tier) at <https://anysearch.com/console/api-keys>.
 
 ### WebFetch pipeline
 
@@ -164,7 +197,7 @@ WebFetch is a standalone content pipeline. It fetches the raw HTML, runs Mozilla
 
 ### Key design decisions
 
-- **No API keys** -- DuckDuckGo is free and requires no authentication
+- **No API keys required** -- DuckDuckGo is free and unauthenticated; AnySearch works anonymously too and only uses a key for a higher quota
 - **No LLM in the pipeline** -- WebFetch extracts content, it does not analyze or summarize
 - **Plugin distribution** -- standard Claude Code plugin, loaded via `claude --plugin-dir`
 - **Scripts compiled to .cjs** -- esbuild bundles TypeScript into standalone Node.js executables

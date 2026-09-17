@@ -170,6 +170,8 @@ describe('getRetryConfig', () => {
     const config: ResolvedConfig = {
       retry: { maxRetries: 6, baseDelay: 500, maxDelay: 8000, timeout: 60000 },
       logging: { level: 'info' },
+      provider: 'duckduckgo',
+      anysearch: { maxResults: 10, fallbackToDuckDuckGo: true },
     };
 
     const { getRetryConfig } = await import('../src/lib/retry.js');
@@ -185,6 +187,8 @@ describe('getRetryConfig', () => {
     const config: ResolvedConfig = {
       retry: { maxRetries: 4, baseDelay: 1000, maxDelay: 16000, timeout: 30000 },
       logging: { level: 'info' },
+      provider: 'duckduckgo',
+      anysearch: { maxResults: 10, fallbackToDuckDuckGo: true },
     };
 
     const { getRetryConfig } = await import('../src/lib/retry.js');
