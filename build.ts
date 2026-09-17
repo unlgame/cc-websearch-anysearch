@@ -48,12 +48,12 @@ const jsdomInlinePlugin = {
     });
 
     build.onLoad(
-      { filter: /style-rules\.js$/ },
+      { filter: /computed-style\.js$/ },
       (args: OnLoadArgs) => {
         if (!args.path.includes('jsdom')) return null;
         let code = fs.readFileSync(args.path, 'utf8');
         code = code.replace(
-          `const defaultStyleSheet = fs.readFileSync(\n  path.resolve(__dirname, "../../browser/default-stylesheet.css"),\n  { encoding: "utf-8" }\n);`,
+          `const defaultStyleSheet = fs.readFileSync(\n  path.resolve(__dirname, "../../../browser/default-stylesheet.css"),\n  { encoding: "utf-8" }\n);`,
           `const defaultStyleSheet = ${JSON.stringify(jsdomCss)};`,
         );
         return { contents: code, loader: 'js' };
